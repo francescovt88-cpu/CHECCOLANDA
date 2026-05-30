@@ -1579,9 +1579,6 @@ function showResult(){
   checkChallengeCompleted(lv.id, st);
   updateTopBar();
   if(st>0) playTone('level');
-  // Unlock sound if new level just became available
-  const nextI = S.lvIdx + 1;
-  if(st>0 && st>prev && nextI<LEVELS.length) setTimeout(()=>playTone('unlock'), 900);
   // Fantasy rank-up check
   if(st>prev && xpGain>0) checkLevelUp(oldXp, S.xp);
   // Achievement check
@@ -1602,6 +1599,8 @@ function showResult(){
   $id('r-score').textContent=sc+'/'+tot;
   $id('r-streak').textContent=S.streak+'🔥';
   const nextI=S.lvIdx+1, btn=$id('r-btn');
+  // Unlock sound se nuovo livello sbloccato
+  if(st>0 && st>prev && nextI<LEVELS.length) setTimeout(()=>playTone('unlock'), 900);
   if(st>0&&nextI<LEVELS.length){
     btn.textContent='Prossima missione: '+LEVELS[nextI].title+' →';
     btn.onclick=()=>openLevel(nextI);
