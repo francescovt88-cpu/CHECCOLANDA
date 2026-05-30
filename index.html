@@ -9,6 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0D0B1A">
 <title>⚔️ KEKKOLANDA</title>
+<script src="https://code.responsivevoice.org/responsivevoice.js?key=FREE"></script>
 <link rel="manifest" href="data:application/manifest+json,{%22name%22:%22KEKKOLANDA%22,%22short_name%22:%22KEKKOLANDA%22,%22start_url%22:%22.%22,%22display%22:%22standalone%22,%22background_color%22:%22%230D0B1A%22,%22theme_color%22:%22%230D0B1A%22,%22orientation%22:%22portrait%22,%22icons%22:[{%22src%22:%22data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20512%20512'%3E%3Crect%20width='512'%20height='512'%20rx='80'%20fill='%230D0B1A'/%3E%3Ctext%20y='380'%20font-size='380'%20text-anchor='middle'%20x='256'%3E%E2%9A%94%EF%B8%8F%3C/text%3E%3C/svg%3E%22,%22sizes%22:%22512x512%22,%22type%22:%22image/svg+xml%22}]}" crossorigin="use-credentials">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20512%20512'%3E%3Crect%20width='512'%20height='512'%20rx='80'%20fill='%230D0B1A'/%3E%3Ctext%20y='380'%20font-size='380'%20text-anchor='middle'%20x='256'%3E%E2%9A%94%EF%B8%8F%3C/text%3E%3C/svg%3E">
 <style>
@@ -952,17 +953,31 @@ function getBestDutchVoice(){
 
 function speakDutch(text, onEnd){
   if(!text) return;
+  // 1️⃣ ResponsiveVoice — voce olandese femminile di alta qualità (cloud TTS)
+  if(window.responsiveVoice && responsiveVoice.voiceSupport()){
+    try {
+      responsiveVoice.cancel();
+      const opts = { rate: 0.88, pitch: 1, volume: 1 };
+      if(onEnd){
+        const dur = Math.max(1500, text.length * 90);
+        const fb = setTimeout(onEnd, dur + 600);
+        opts.onend   = ()=>{ clearTimeout(fb); onEnd(); };
+        opts.onerror = ()=>{ clearTimeout(fb); onEnd(); };
+      }
+      responsiveVoice.speak(text, 'Dutch Female', opts);
+      return;
+    } catch(e){}
+  }
+  // 2️⃣ Fallback: Web Speech API
   try {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'nl-NL';
-    u.rate = 0.82;   // leggermente più lento = più chiaro e naturale
+    u.rate = 0.82;
     u.pitch = 1.0;
     u.volume = 1.0;
     const voice = getBestDutchVoice();
     if(voice) u.voice = voice;
-    if(onEnd) u.onend = onEnd;
-    // Fallback onend per browser che non sparano l'evento
     if(onEnd){
       const dur = Math.max(1200, text.length * 80);
       const fallback = setTimeout(()=>{ onEnd(); }, dur + 400);
@@ -994,6 +1009,23 @@ function _note(ctx, freq, type, startT, duration, peakGain, filter){
   g.gain.exponentialRampToValueAtTime(0.001, startT + duration);
   o.start(startT);
   o.stop(startT + duration + 0.01);
+}
+
+function _noise(ctx, t, dur, gain){
+  try {
+    const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for(let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1);
+    const src = ctx.createBufferSource();
+    const filt = ctx.createBiquadFilter();
+    const g = ctx.createGain();
+    filt.type = 'highpass'; filt.frequency.value = 2200;
+    src.buffer = buf;
+    src.connect(filt); filt.connect(g); g.connect(ctx.destination);
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.start(t); src.stop(t + dur + 0.01);
+  } catch(e) {}
 }
 
 function playTone(type){
@@ -1058,6 +1090,55 @@ function playTone(type){
       // ⚡ Piccolo bonus streak — due note veloci ascendenti
       _note(ctx, 880, 'sine', now, 0.18, 0.14);
       _note(ctx, 1175, 'sine', now + 0.1, 0.22, 0.12);
+
+    } else if(type === 'click'){
+      // 🖱️ Click sottile — tick con noise breve ad alta freq
+      _noise(ctx, now, 0.04, 0.07);
+      _note(ctx, 1800, 'sine', now, 0.06, 0.05);
+
+    } else if(type === 'open'){
+      // 🌀 Transizione schermata — whoosh ascendente morbido
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.type = 'sine';
+      o.frequency.setValueAtTime(200, now);
+      o.frequency.exponentialRampToValueAtTime(700, now + 0.22);
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(0.13, now + 0.06);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+      o.start(now); o.stop(now + 0.3);
+      _noise(ctx, now, 0.18, 0.04);
+
+    } else if(type === 'achievement'){
+      // 🏅 Achievement — shimmer magico 4 note + sparkle
+      const magic = [1047, 1319, 1568, 2093]; // C5 E5 G5 C6
+      magic.forEach((f, i) => {
+        const t = now + i * 0.09;
+        _note(ctx, f, 'sine', t, 0.35, 0.16);
+        _note(ctx, f * 1.26, 'sine', t + 0.03, 0.20, 0.06);
+      });
+      // Sparkle finale
+      [2637, 3136, 4186].forEach((f, i) => {
+        _note(ctx, f, 'sine', now + 0.45 + i * 0.06, 0.18, 0.08);
+      });
+
+    } else if(type === 'unlock'){
+      // 🔓 Sblocco — sweep ascendente + accordo di conferma
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(130, now);
+      o.frequency.exponentialRampToValueAtTime(1047, now + 0.35);
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(0.18, now + 0.05);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+      o.start(now); o.stop(now + 0.42);
+      // Accordo di risoluzione
+      [523, 659, 784].forEach((f, i) => {
+        _note(ctx, f, 'triangle', now + 0.38 + i * 0.04, 0.5, 0.14);
+      });
     }
   } catch(e){}
 }
@@ -1148,6 +1229,7 @@ function animSpeakBtn(id){
 // HOME / MAP
 // ═══════════════════════════════════════════════
 function goHome(){
+  playTone('click');
   clearTimer();
   updateTopBar();
   renderMap();
@@ -1187,6 +1269,7 @@ function renderMap(){
 // INTRO
 // ═══════════════════════════════════════════════
 function openLevel(i){
+  playTone('click');
   S.lvIdx=i;
   const lv=LEVELS[i];
   $id('i-icon').textContent=lv.icon;
@@ -1203,6 +1286,7 @@ function openLevel(i){
 // SESSION
 // ═══════════════════════════════════════════════
 function startSession(){
+  playTone('open');
   S.phase=0; S.step=0; S.flipped=false; S.revealed=false;
   S.answered=false; S.quizScore=0; S.timerSec=600;
   S.mcQs=buildMCQ();
@@ -1264,6 +1348,7 @@ function flipCard(){
 }
 
 function flashNav(d){
+  playTone('click');
   const ws=LEVELS[S.lvIdx].words;
   if(d>0){
     S.step++;
@@ -1284,6 +1369,7 @@ function buildMCQ(){
 }
 
 function startMC(){
+  playTone('open');
   S.phase=1; S.step=0; S.answered=false;
   show('screen-mc');
   renderMC();
@@ -1338,6 +1424,7 @@ function buildListenQ(){
 }
 
 function startListen(){
+  playTone('open');
   S.phase=2; S.step=0; S.answered=false;
   show('screen-listen');
   renderListen();
@@ -1383,6 +1470,7 @@ function nextListen(){
 
 // ── PHRASES ──
 function startPhrase(){
+  playTone('open');
   S.phase=3; S.step=0; S.revealed=false;
   show('screen-phrase');
   renderPhrase();
@@ -1406,12 +1494,14 @@ function renderPhrase(){
 }
 
 function revealPhrase(){
+  playTone('click');
   $id('pp-itbox').className='phrase-it-box show';
   $id('pp-revbtn').style.display='none';
   S.revealed=true;
 }
 
 function phraseNav(d){
+  playTone('click');
   const ps=LEVELS[S.lvIdx].phrases;
   if(d>0){
     S.step++;
@@ -1422,6 +1512,7 @@ function phraseNav(d){
 
 // ── QUIZ ──
 function startQuiz(){
+  playTone('open');
   S.phase=4; S.step=0; S.quizScore=0; S.answered=false;
   show('screen-quiz');
   renderQuiz();
@@ -1488,6 +1579,9 @@ function showResult(){
   checkChallengeCompleted(lv.id, st);
   updateTopBar();
   if(st>0) playTone('level');
+  // Unlock sound if new level just became available
+  const nextI = S.lvIdx + 1;
+  if(st>0 && st>prev && nextI<LEVELS.length) setTimeout(()=>playTone('unlock'), 900);
   // Fantasy rank-up check
   if(st>prev && xpGain>0) checkLevelUp(oldXp, S.xp);
   // Achievement check
@@ -1649,6 +1743,7 @@ function checkAchievements() {
 }
 
 function showAchToast(ach) {
+  playTone('achievement');
   $id('ach-t-icon').textContent = ach.icon;
   $id('ach-t-name').textContent = ach.name;
   $id('ach-t-desc').textContent  = ach.desc;
@@ -1903,4 +1998,3 @@ renderUserCards();
 </script>
 </body>
 </html>
-
