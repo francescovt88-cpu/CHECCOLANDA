@@ -927,73 +927,137 @@ function getAudioCtx(){
   return _audioCtx;
 }
 
+// Cache delle voci dopo il primo caricamento
+let _cachedVoices = [];
+function _loadVoices(){ _cachedVoices = window.speechSynthesis.getVoices(); }
+if(window.speechSynthesis){
+  window.speechSynthesis.onvoiceschanged = _loadVoices;
+  _loadVoices();
+}
+
+function getBestDutchVoice(){
+  const voices = _cachedVoices.length ? _cachedVoices : window.speechSynthesis.getVoices();
+  // Voci di alta qualità in ordine di preferenza (iOS/macOS/Windows)
+  const preferred = ['Xander','Ellen','Fien','Lotte','Nora','Joep','Mila'];
+  for(const name of preferred){
+    const v = voices.find(v => v.name.includes(name));
+    if(v) return v;
+  }
+  // Voce Dutch enhanced/premium generica
+  const enhanced = voices.find(v => v.lang.startsWith('nl') && (v.name.toLowerCase().includes('enhanced') || v.name.toLowerCase().includes('premium')));
+  if(enhanced) return enhanced;
+  // Qualunque voce olandese
+  return voices.find(v => v.lang.startsWith('nl')) || null;
+}
+
 function speakDutch(text, onEnd){
   if(!text) return;
   try {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'nl-NL';
-    u.rate = 0.88;
-    u.pitch = 1;
-    // Try to pick a Dutch voice if available
-    const voices = window.speechSynthesis.getVoices();
-    const nlVoice = voices.find(v=>v.lang.startsWith('nl'));
-    if(nlVoice) u.voice = nlVoice;
+    u.rate = 0.82;   // leggermente più lento = più chiaro e naturale
+    u.pitch = 1.0;
+    u.volume = 1.0;
+    const voice = getBestDutchVoice();
+    if(voice) u.voice = voice;
     if(onEnd) u.onend = onEnd;
+    // Fallback onend per browser che non sparano l'evento
+    if(onEnd){
+      const dur = Math.max(1200, text.length * 80);
+      const fallback = setTimeout(()=>{ onEnd(); }, dur + 400);
+      u.onend = ()=>{ clearTimeout(fallback); onEnd(); };
+    }
     window.speechSynthesis.speak(u);
   } catch(e){ if(onEnd) onEnd(); }
 }
-// Pre-load voices when they become available
-if(window.speechSynthesis){
-  window.speechSynthesis.onvoiceschanged = ()=>{ window.speechSynthesis.getVoices(); };
+
+// ── Helper per creare un nodo oscillatore semplice ──
+function _note(ctx, freq, type, startT, duration, peakGain, filter){
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  let chain = o;
+  if(filter){
+    const f = ctx.createBiquadFilter();
+    f.type = filter.type || 'lowpass';
+    f.frequency.value = filter.freq || 1000;
+    if(filter.Q) f.Q.value = filter.Q;
+    o.connect(f); f.connect(g);
+  } else {
+    o.connect(g);
+  }
+  g.connect(ctx.destination);
+  o.type = type;
+  o.frequency.value = freq;
+  g.gain.setValueAtTime(0, startT);
+  g.gain.linearRampToValueAtTime(peakGain, startT + 0.018);
+  g.gain.exponentialRampToValueAtTime(0.001, startT + duration);
+  o.start(startT);
+  o.stop(startT + duration + 0.01);
 }
 
 function playTone(type){
   try {
     const ctx = getAudioCtx();
     if(!ctx) return;
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.connect(g); g.connect(ctx.destination);
     const now = ctx.currentTime;
-    if(type==='correct'){
-      o.type='sine'; o.frequency.value=880;
-      g.gain.setValueAtTime(0,now);
-      g.gain.linearRampToValueAtTime(0.18,now+0.03);
-      g.gain.exponentialRampToValueAtTime(0.001,now+0.35);
-      o.start(now); o.stop(now+0.36);
-      // Second ping
-      const o2=ctx.createOscillator(), g2=ctx.createGain();
-      o2.connect(g2); g2.connect(ctx.destination);
-      o2.type='sine'; o2.frequency.value=1100;
-      g2.gain.setValueAtTime(0,now+0.12);
-      g2.gain.linearRampToValueAtTime(0.12,now+0.16);
-      g2.gain.exponentialRampToValueAtTime(0.001,now+0.42);
-      o2.start(now+0.12); o2.stop(now+0.44);
-    } else if(type==='wrong'){
-      o.type='sawtooth'; o.frequency.value=220;
-      g.gain.setValueAtTime(0,now);
-      g.gain.linearRampToValueAtTime(0.15,now+0.04);
-      g.gain.exponentialRampToValueAtTime(0.001,now+0.38);
-      o.start(now); o.stop(now+0.4);
-    } else if(type==='flip'){
-      o.type='sine'; o.frequency.value=660;
-      g.gain.setValueAtTime(0,now);
-      g.gain.linearRampToValueAtTime(0.1,now+0.02);
-      g.gain.exponentialRampToValueAtTime(0.001,now+0.18);
-      o.start(now); o.stop(now+0.2);
-    } else if(type==='level'){
-      // Short fanfare
-      [523,659,784].forEach((f,i)=>{
-        const oo=ctx.createOscillator(), gg=ctx.createGain();
-        oo.connect(gg); gg.connect(ctx.destination);
-        oo.type='triangle'; oo.frequency.value=f;
-        const t=now+i*0.12;
-        gg.gain.setValueAtTime(0,t);
-        gg.gain.linearRampToValueAtTime(0.18,t+0.04);
-        gg.gain.exponentialRampToValueAtTime(0.001,t+0.28);
-        oo.start(t); oo.stop(t+0.3);
+
+    if(type === 'correct'){
+      // 🎵 Ding soddisfacente — accordo maggiore arpeggiato (Do-Mi-Sol, stile Duolingo)
+      const notes = [523.25, 659.25, 783.99];
+      notes.forEach((f, i) => {
+        const t = now + i * 0.075;
+        _note(ctx, f, 'sine', t, 0.45, 0.22);
+        // Armonica leggermente sopra per brillantezza
+        _note(ctx, f * 2, 'sine', t, 0.25, 0.04);
       });
-      return;
+
+    } else if(type === 'wrong'){
+      // 🔔 Buzz discendente — wah-wah triste
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      const filt = ctx.createBiquadFilter();
+      filt.type = 'lowpass'; filt.frequency.value = 800; filt.Q.value = 2;
+      o.connect(filt); filt.connect(g); g.connect(ctx.destination);
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(280, now);
+      o.frequency.linearRampToValueAtTime(130, now + 0.45);
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(0.18, now + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+      o.start(now); o.stop(now + 0.58);
+      // Secondo bump per "wah"
+      const o2 = ctx.createOscillator();
+      const g2 = ctx.createGain();
+      o2.connect(g2); g2.connect(ctx.destination);
+      o2.type = 'sine'; o2.frequency.value = 180;
+      g2.gain.setValueAtTime(0, now + 0.18);
+      g2.gain.linearRampToValueAtTime(0.1, now + 0.22);
+      g2.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+      o2.start(now + 0.18); o2.stop(now + 0.52);
+
+    } else if(type === 'flip'){
+      // 🌊 Whoosh morbido — click + sine breve
+      _note(ctx, 1200, 'sine', now, 0.12, 0.08);
+      _note(ctx, 600,  'sine', now + 0.03, 0.15, 0.06);
+
+    } else if(type === 'level'){
+      // 🏆 Fanfara breve di completamento livello (5 note ascendenti)
+      const melody = [523, 659, 784, 1047, 1319]; // C E G C5 E5
+      melody.forEach((f, i) => {
+        const t = now + i * 0.11;
+        _note(ctx, f, 'triangle', t, 0.32, 0.22);
+        _note(ctx, f * 1.5, 'sine', t, 0.18, 0.05); // quinta armonica
+      });
+      // Nota finale lunga
+      const lastT = now + melody.length * 0.11;
+      _note(ctx, 1047, 'triangle', lastT, 0.6, 0.25);
+      _note(ctx, 1319, 'triangle', lastT + 0.05, 0.55, 0.18);
+
+    } else if(type === 'streak'){
+      // ⚡ Piccolo bonus streak — due note veloci ascendenti
+      _note(ctx, 880, 'sine', now, 0.18, 0.14);
+      _note(ctx, 1175, 'sine', now + 0.1, 0.22, 0.12);
     }
   } catch(e){}
 }
@@ -1018,6 +1082,7 @@ const S = {
   quizScore:0, mcQs:[], listenQs:[],
   timerSec:600, timerInt:null,
   currentNL:'',
+  correctStreak:0,  // streak risposte corrette consecutive (per suono streak)
 };
 
 // ═══════════════════════════════════════════════
@@ -1038,6 +1103,23 @@ function updateTopBar(){
   $id('rank-icon-tb').textContent=rank.icon;
   updateFantasyHero();
   renderAchievements();
+}
+
+// ═══════════════════════════════════════════════
+// ANSWER SOUND — correct/wrong con streak bonus
+// ═══════════════════════════════════════════════
+function playAnswerSound(ok){
+  if(ok){
+    S.correctStreak = (S.correctStreak||0) + 1;
+    if(S.correctStreak > 0 && S.correctStreak % 3 === 0){
+      // Ogni 3 risposte giuste di fila → suono streak bonus
+      setTimeout(()=>playTone('streak'), 280);
+    }
+    playTone('correct');
+  } else {
+    S.correctStreak = 0;
+    playTone('wrong');
+  }
 }
 
 // ═══════════════════════════════════════════════
@@ -1231,7 +1313,7 @@ function selectMC(i){
   const ok=q.opts[i]===q.correct;
   btns[i].classList.add(ok?'ok':'no');
   if(!ok){const ci=q.opts.indexOf(q.correct);if(ci>=0)btns[ci].classList.add('ok');}
-  playTone(ok?'correct':'wrong');
+  playAnswerSound(ok);
   const fb=$id('mc-fb');
   fb.className='mc-fb show '+(ok?'ok':'no');
   fb.textContent=(ok?'✓ Esatto! ':'✗ Sbagliato. ')+q.word+' = '+q.correct;
@@ -1286,7 +1368,7 @@ function selectListen(i){
   const ok=q.opts[i]===q.correct;
   btns[i].classList.add(ok?'ok':'no');
   if(!ok){const ci=q.opts.indexOf(q.correct);if(ci>=0)btns[ci].classList.add('ok');}
-  playTone(ok?'correct':'wrong');
+  playAnswerSound(ok);
   const fb=$id('ls-fb');
   fb.className='mc-fb show '+(ok?'ok':'no');
   fb.textContent=(ok?'✓ Esatto! ':'✗ La parola era: ')+q.nl+' = '+q.correct;
@@ -1372,7 +1454,7 @@ function selectQuiz(i){
   if(ok) S.quizScore++;
   btns[i].classList.add(ok?'ok':'no');
   if(!ok) btns[q.ans].classList.add('ok');
-  playTone(ok?'correct':'wrong');
+  playAnswerSound(ok);
   $id('qz-score').textContent=S.quizScore+'/'+(S.step+1);
   const fb=$id('qz-fb');
   fb.className='mc-fb show '+(ok?'ok':'no');
@@ -1600,19 +1682,33 @@ function closeLevelUp() {
 }
 
 function playLevelUpFanfare() {
+  // 🏆 RANK-UP — fanfara epica multi-nota con basso + melodia + shimmer
   try {
     const ctx = getAudioCtx();
-    const notes = [523, 659, 784, 1047, 1319];
-    notes.forEach((f, i) => {
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.connect(g); g.connect(ctx.destination);
-      o.type = 'triangle';
-      o.frequency.value = f;
-      const t = ctx.currentTime + i * 0.13;
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.22, t + 0.05);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
-      o.start(t); o.stop(t + 0.32);
+    if(!ctx) return;
+    const now = ctx.currentTime;
+
+    // Basso di supporto
+    _note(ctx, 130, 'triangle', now, 1.2, 0.18);
+    _note(ctx, 196, 'triangle', now + 0.4, 0.9, 0.14);
+
+    // Melodia ascendente eroica: Do-Mi-Sol-Do-Mi-Sol-Do
+    const melody = [523, 659, 784, 1047, 1319, 1568, 2093];
+    melody.forEach((f, i) => {
+      const t = now + i * 0.12;
+      _note(ctx, f, 'triangle', t, 0.35, 0.20);
+      _note(ctx, f, 'sine',     t, 0.30, 0.08); // raddoppio sine per calore
+    });
+
+    // Accordo finale tenuto (C major quinta ottava alta)
+    const endT = now + melody.length * 0.12 + 0.08;
+    [1047, 1319, 1568].forEach((f, i) => {
+      _note(ctx, f, 'triangle', endT + i * 0.03, 0.9, 0.18);
+    });
+
+    // Shimmer finale — note altissime che brillano
+    [4186, 3136, 2637].forEach((f, i) => {
+      _note(ctx, f, 'sine', endT + 0.1 + i * 0.08, 0.35, 0.06);
     });
   } catch(e) {}
 }
@@ -1807,3 +1903,4 @@ renderUserCards();
 </script>
 </body>
 </html>
+
