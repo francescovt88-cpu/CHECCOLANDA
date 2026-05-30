@@ -922,11 +922,26 @@ const LEVELS = [
 // ═══════════════════════════════════════════════
 let _audioCtx = null;
 function getAudioCtx(){
-  if(!_audioCtx){
-    try { _audioCtx = new (window.AudioContext||window.webkitAudioContext)(); } catch(e){}
-  }
+  try {
+    if(!_audioCtx){
+      _audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    }
+    // Risveglia il contesto se è sospeso (necessario su iOS/mobile)
+    if(_audioCtx && _audioCtx.state === 'suspended'){
+      _audioCtx.resume();
+    }
+  } catch(e){}
   return _audioCtx;
 }
+// Sblocca AudioContext al primo tocco (iOS richiede gesto utente)
+document.addEventListener('touchstart', function _unlock(){
+  getAudioCtx();
+  document.removeEventListener('touchstart', _unlock);
+}, {once:true, passive:true});
+document.addEventListener('click', function _unlockClick(){
+  getAudioCtx();
+  document.removeEventListener('click', _unlockClick);
+}, {once:true, passive:true});
 
 // Cache delle voci dopo il primo caricamento
 let _cachedVoices = [];
@@ -953,14 +968,15 @@ function getBestDutchVoice(){
 
 function speakDutch(text, onEnd){
   if(!text) return;
-  // 1️⃣ ResponsiveVoice — voce olandese femminile di alta qualità (cloud TTS)
-  if(window.responsiveVoice && responsiveVoice.voiceSupport()){
+  // 1️⃣ ResponsiveVoice — voce olandese femminile cloud (alta qualità)
+  // Non usiamo voiceSupport() perché è inaffidabile; proviamo direttamente
+  if(typeof responsiveVoice !== 'undefined'){
     try {
       responsiveVoice.cancel();
-      const opts = { rate: 0.88, pitch: 1, volume: 1 };
+      const opts = { rate: 0.85, pitch: 1, volume: 1 };
       if(onEnd){
-        const dur = Math.max(1500, text.length * 90);
-        const fb = setTimeout(onEnd, dur + 600);
+        const dur = Math.max(1800, text.length * 100);
+        const fb = setTimeout(onEnd, dur + 800);
         opts.onend   = ()=>{ clearTimeout(fb); onEnd(); };
         opts.onerror = ()=>{ clearTimeout(fb); onEnd(); };
       }
@@ -968,20 +984,21 @@ function speakDutch(text, onEnd){
       return;
     } catch(e){}
   }
-  // 2️⃣ Fallback: Web Speech API
+  // 2️⃣ Fallback: Web Speech API con selezione voce migliorata
   try {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'nl-NL';
-    u.rate = 0.82;
-    u.pitch = 1.0;
+    u.rate = 0.78;   // più lento = più chiaro
+    u.pitch = 1.05;
     u.volume = 1.0;
     const voice = getBestDutchVoice();
     if(voice) u.voice = voice;
     if(onEnd){
-      const dur = Math.max(1200, text.length * 80);
-      const fallback = setTimeout(()=>{ onEnd(); }, dur + 400);
+      const dur = Math.max(1400, text.length * 90);
+      const fallback = setTimeout(()=>{ onEnd(); }, dur + 500);
       u.onend = ()=>{ clearTimeout(fallback); onEnd(); };
+      u.onerror = ()=>{ clearTimeout(fallback); onEnd(); };
     }
     window.speechSynthesis.speak(u);
   } catch(e){ if(onEnd) onEnd(); }
